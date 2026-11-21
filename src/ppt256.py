@@ -1,15 +1,25 @@
+from dataclasses import dataclass
+from enum import Enum
 import tkinter as tk
 import os, sys
-from tkinter import filedialog, messagebox, scrolledtext, colorchooser
+from tkinter import Listbox, filedialog, messagebox, scrolledtext, colorchooser
 from PIL import Image
 
 rows, cols = 16, 16
 cell_grid = []
 palette = []
 file_path = None
+g_shift_down = False
 
 # Stubbed here, gets initialized along with tk
 ICON_IMG = object()
+
+def handle_key(event, down: bool):
+    global g_shift_down
+    #print(event.keysym)
+
+    if event.keysym == "Shift_L" or event.keysym == "Shift_R":
+        g_shift_down = down
 
 def resource_path(relative_path):
   if hasattr(sys, '_MEIPASS'):
@@ -122,9 +132,115 @@ def _grid():
     for y in range(cols):
       cell = tk.Label(frame, width=4, height=2, bg="white", relief=tk.SUNKEN, bd=2 )
       cell.grid(row=x, column=y)
-      cell.bind("<Double-1>", lambda event, r=x, c=y: edit_color(r, c))      
+      cell.bind("<Button-1>", lambda event, ind = (x * cols + y): edit_selection(ind))
+      cell.bind("<Double-1>", lambda event, r=x, c=y: edit_color(r, c))
       row.append(cell)
     cell_grid.append(row)
+
+class ColorMode(Enum):
+    HSV = 1
+    RGB = 2
+    OKLAB = 3
+
+@dataclass
+class Selection:
+    start: int
+    end: int
+
+def update_selection():
+    for y in range(cols):
+        for x in range(rows):
+            color_index = x * cols + y
+            r, g, b = palette[color_index]
+
+            if g_sel.start != -1:
+                if ((g_sel.start <= color_index <= g_sel.end or g_sel.start >= color_index >= g_sel.end) and g_sel.end != -1) or (g_sel.end == -1 and color_index == g_sel.start):
+                    r = abs(r - 60)
+                    b = 255
+                    g = abs(g - 60)
+
+            hex_color = f"#{r:02x}{g:02x}{b:02x}"
+            cell_grid[x][y].config(bg=hex_color)
+
+g_sel = Selection(-1, -1)
+
+def edit_selection(val):
+    global g_sel, g_shift_down
+    """
+    Selection manager
+    Val will set the currently empty point of the selection
+    or reset selection if val is -1
+    """
+
+    if g_sel.start != -1 and g_shift_down == True:
+        g_sel.end = val
+    else:
+        g_sel.end = -1
+
+    if g_sel.start == -1 or g_shift_down == False:
+        g_sel.start = val
+
+    if val == -1:
+        g_sel.start = -1
+        g_sel.end = -1
+
+    update_selection()
+
+@dataclass
+class TintColor:
+    # Interpreted based off of colormode
+    x: float
+    y: float
+    z: float
+
+@dataclass
+class TintRamp:
+    start: int
+    len: int
+
+    type: ColorMode
+    startcolor: TintColor
+    endcolor: TintColor
+    
+    # kinda rough conversion of skip value
+    skipstart: bool
+    skipend: bool
+
+ramps: list[TintRamp] = []
+
+def add_ramp(sel: Selection):
+    """
+    Creates a ramp based off of selection, and returns its index.
+    """
+    emptycolor = TintColor(0, 0, 0)
+    
+    ramps.append(TintRamp(sel.start,
+                          abs(sel.start - sel.end),
+                          ColorMode.HSV,
+                          emptycolor,
+                          emptycolor,
+                          False,
+                          False)
+                 )
+
+    return len(ramps)
+
+def _range_editor():
+    """heavy WIP"""
+    test = ("1", "2", "3")
+    lv = tk.Variable(value=test)
+    
+    lf = tk.Frame(frame)
+    lb = Listbox(lf, width=20, height=10, listvariable=lv)
+    add_button = tk.Button(lf, text="+", pady=2)
+    trash_button = tk.Button(lf, text="trash", pady=2)
+
+    lb.grid(column=0, row=0, sticky='w')
+    lf.grid(column=0, row=16, columnspan=5, sticky='w')
+    add_button.grid(column=0, row= 16, padx= 5, pady = 5, sticky='w')
+    trash_button.grid(column=0, row= 16, padx=50, pady = 5, sticky='w')
+    #lf.pack(expand=True, fill=tk.BOTH)
+    pass
 
 def open_png(file_path):
   image = Image.open(file_path)
@@ -418,7 +534,7 @@ and color editing implementation.
 
 root = tk.Tk()
 root.title("Palpatine 256")
-root.geometry("570x620")
+root.geometry("570x775")
 
 # ugly place to do this but it's gotta be after tk has been initialized
 ICON_IMG = tk.PhotoImage(file=resource_path("icon.png"))
@@ -444,11 +560,22 @@ help_menu.add_command(label="About", command=about)
 
 root.config(menu=menu)
 
+# Fill up palette, so that we can have
+# selections without loading a ready made one
+for _ in range(256):
+    palette.append((255, 255, 255))
+
 _grid()
+_range_editor()
 
 root.bind("<Control-o>", lambda event: open_file())
 root.bind("<Control-s>", lambda event: export_file())
 root.bind("<Control-h>", lambda event: help())
 root.bind("<Control-q>", lambda event: root.destroy())
+root.bind("<Escape>", lambda event: edit_selection(-1))
+
+# Used to implement alternative modes eg holding down shift
+root.bind("<KeyPress>", lambda event: handle_key(event, True))
+root.bind("<KeyRelease>", lambda event: handle_key(event, False))
 
 root.mainloop()
