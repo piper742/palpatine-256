@@ -67,7 +67,9 @@ def export_file():
     ("Palette Lump", "*.lmp"),
     ("JASC Palette", "*.pal"),
     ("Microsoft Palette", "*.mspal"),
-    ("Build Engine Palette", "*.DAT"),
+    # This is not implemented
+    # Requires narrowing conversion from 8 to 6 bit RGB
+    #("Build Engine Palette", "*.DAT"),
     ("Photoshop Palette", "*.act"),
     ("GIMP Palette", "*.gpl"),
     ],
