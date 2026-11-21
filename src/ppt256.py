@@ -8,6 +8,9 @@ cell_grid = []
 palette = []
 file_path = None
 
+# Stubbed here, gets initialized along with tk
+ICON_IMG = object()
+
 def resource_path(relative_path):
   if hasattr(sys, '_MEIPASS'):
       base_path = sys._MEIPASS
@@ -347,15 +350,17 @@ def about():
     about_window.title("About Palpatine 256")
     about_window.geometry("350x100")
     about_window.resizable(False, False)
-    about_window.attributes('-toolwindow', True)
+
+    # Proper cross platform window
+    if sys.platform == "win32":
+        about_window.attributes('-toolwindow', True)
   
     frame = tk.Frame(about_window)
     frame.pack(padx=5, pady=5)
 
-    icon_image = tk.PhotoImage(file=resource_path("icon.png"))
 
-    icon_label = tk.Label(frame, image=icon_image)
-    icon_label.image = icon_image
+    icon_label = tk.Label(frame, image=ICON_IMG)
+    icon_label.image = ICON_IMG
     icon_label.grid(row=0, column=0)
 
     text_label = tk.Label(frame, text=message, justify="left", anchor="w")
@@ -399,7 +404,7 @@ and color editing implementation.
   help_window.title("Help Palpatine 256")
   help_window.geometry("600x320")
   help_window.resizable(False, False)
-  help_window.iconbitmap(resource_path("icon.ico"))
+  help_window.iconphoto(True, ICON_IMG)
 
   frame = tk.Frame(help_window)
   frame.pack(padx=5, pady=5)
@@ -412,7 +417,10 @@ and color editing implementation.
 root = tk.Tk()
 root.title("Palpatine 256")
 root.geometry("570x620")
-root.iconbitmap(resource_path("icon.ico"))
+
+# ugly place to do this but it's gotta be after tk has been initialized
+ICON_IMG = tk.PhotoImage(file=resource_path("icon.png"))
+root.iconphoto(True, ICON_IMG)
 
 frame = tk.Frame(root)
 frame.pack(expand=True)
@@ -425,10 +433,10 @@ file_menu.add_command(label="Import File...", command=open_file, accelerator="Ct
 file_menu.add_separator()
 file_menu.add_command(label="Export File...", command=export_file, accelerator="Ctrl+S")
 file_menu.add_separator()
-file_menu.add_command(label="Exit", command=lambda: root.destroy(), accelerator="Ctrl+H")
+file_menu.add_command(label="Exit", command=lambda: root.destroy(), accelerator="Ctrl+Q")
 help_menu = tk.Menu(menu, tearoff=0)
 menu.add_cascade(label="Help", menu=help_menu)
-help_menu.add_command(label="Help", command=help, accelerator="Ctrl+Q")
+help_menu.add_command(label="Help", command=help, accelerator="Ctrl+H")
 help_menu.add_separator()
 help_menu.add_command(label="About", command=about)
 
