@@ -1,9 +1,9 @@
-from dataclasses import dataclass
-from enum import Enum
 import tkinter as tk
 import os, sys
 from tkinter import Listbox, filedialog, messagebox, scrolledtext, colorchooser
 from PIL import Image
+from dataclasses import dataclass
+from enum import Enum
 
 rows, cols = 16, 16
 cell_grid = []
@@ -13,6 +13,44 @@ g_shift_down = False
 
 # Stubbed here, gets initialized along with tk
 ICON_IMG = object()
+
+class ColorMode(Enum):
+    HSV = 1
+    RGB = 2
+    OKLAB = 3
+
+@dataclass
+class Selection:
+    start: int
+    end: int
+
+g_sel = Selection(-1, -1)
+
+@dataclass
+class TintColor:
+    # Interpreted based off of colormode
+    x: float
+    y: float
+    z: float
+
+@dataclass
+class TintRamp:
+    start: int
+    len: int
+
+    type: ColorMode
+    startcolor: TintColor
+    endcolor: TintColor
+    step: int
+
+    # kinda rough conversion of skip value
+    skipstart: bool
+    skipend: bool
+
+ramps: dict[int, TintRamp] = dict()
+g_ramp_cnt = 0
+# Initialized later along with tk
+g_ramps_tk = object()
 
 def handle_key(event, down: bool):
     global g_shift_down
@@ -137,15 +175,7 @@ def _grid():
       row.append(cell)
     cell_grid.append(row)
 
-class ColorMode(Enum):
-    HSV = 1
-    RGB = 2
-    OKLAB = 3
 
-@dataclass
-class Selection:
-    start: int
-    end: int
 
 def update_selection():
     for y in range(cols):
@@ -162,7 +192,6 @@ def update_selection():
             hex_color = f"#{r:02x}{g:02x}{b:02x}"
             cell_grid[x][y].config(bg=hex_color)
 
-g_sel = Selection(-1, -1)
 
 def edit_selection(val):
     global g_sel, g_shift_down
@@ -186,61 +215,87 @@ def edit_selection(val):
 
     update_selection()
 
-@dataclass
-class TintColor:
-    # Interpreted based off of colormode
-    x: float
-    y: float
-    z: float
-
-@dataclass
-class TintRamp:
-    start: int
-    len: int
-
-    type: ColorMode
-    startcolor: TintColor
-    endcolor: TintColor
-    
-    # kinda rough conversion of skip value
-    skipstart: bool
-    skipend: bool
-
-ramps: list[TintRamp] = []
-
-def add_ramp(sel: Selection):
+def add_ramp():
+    global g_ramp_cnt
     """
-    Creates a ramp based off of selection, and returns its index.
+    Creates a ramp based off of selection
     """
+
+    if g_sel.end == -1:
+        return
+
     emptycolor = TintColor(0, 0, 0)
     
-    ramps.append(TintRamp(sel.start,
-                          abs(sel.start - sel.end),
+    ramps[g_ramp_cnt] = (TintRamp(g_sel.start,
+                          abs(g_sel.start - g_sel.end),
                           ColorMode.HSV,
                           emptycolor,
                           emptycolor,
+                          1,
                           False,
                           False)
                  )
+    g_ramp_cnt += 1
+    g_ramps_tk.set(value=tuple(ramps.keys()))
+    print("Added ramp!")
 
-    return len(ramps)
+def del_ramp(list_sel):
+    global g_ramps_tk
+    # Real ugly lazy solution to avoid checking whether
+    # we have anything selected in the listbox
+    try:
+        idx = g_ramps_tk.get()[list_sel[0]]
+        del ramps[idx]
+        g_ramps_tk.set(value=tuple(ramps.keys()))
+    except IndexError:
+        pass
 
 def _range_editor():
+    global g_ramps_tk
     """heavy WIP"""
-    test = ("1", "2", "3")
-    lv = tk.Variable(value=test)
     
-    lf = tk.Frame(frame)
-    lb = Listbox(lf, width=20, height=10, listvariable=lv)
-    add_button = tk.Button(lf, text="+", pady=2)
-    trash_button = tk.Button(lf, text="trash", pady=2)
+    # Frame + Listbox
+    listframe = tk.Frame(frame)
+    listbox = Listbox(listframe, width=20, height=10, listvariable=g_ramps_tk, selectmode=tk.SINGLE)
+    listbox_scroll = tk.Scrollbar(listframe)
+    listbox.config(yscrollcommand=listbox_scroll.set)
+    listbox_scroll.config(command=listbox.yview)
+    add_button = tk.Button(listframe, text="+", command=add_ramp, pady=2)
+    trash_button = tk.Button(listframe, text="trash", pady=2,
+                             command=lambda: del_ramp(listbox.curselection()))
 
-    lb.grid(column=0, row=0, sticky='w')
-    lf.grid(column=0, row=16, columnspan=5, sticky='w')
+    listbox.grid(column=0, row=0, rowspan=9, sticky='w')
+    listbox_scroll.grid(column=0, row=0, rowspan=9, sticky='nse')
+    listframe.grid(column=0, row=16, columnspan=16, rowspan=9, sticky='w')
     add_button.grid(column=0, row= 16, padx= 5, pady = 5, sticky='w')
     trash_button.grid(column=0, row= 16, padx=50, pady = 5, sticky='w')
-    #lf.pack(expand=True, fill=tk.BOTH)
-    pass
+
+    # First column of editor
+    colorframe = tk.LabelFrame(listframe, text="Color Mode")
+    colorframe.grid(column=1, row=0, padx=5)
+    color_row = 1
+    colors_var = tk.StringVar()
+    colors = ('HSV', 'RGB', 'OKLAB')
+    for color in colors:
+        colorradio = tk.Radiobutton(colorframe, text=color, value=color, variable=colors_var)
+        colorradio.grid(column=1, row=color_row, sticky='w')
+        color_row += 1
+
+    skipframe = tk.LabelFrame(listframe, text="Skip")
+    skipstart_var = tk.IntVar()
+    skipend_var = tk.IntVar()
+    skipstart_btn = tk.Checkbutton(skipframe, text="Start", variable=skipstart_var, onvalue=1, offvalue=0)
+    skipend_btn = tk.Checkbutton(skipframe, text="End", variable=skipend_var, onvalue=1, offvalue=0)
+    skipframe.grid(column=1, row=color_row + 1, padx=5, sticky='w')
+    skipstart_btn.grid(column=1, row=color_row + 2, sticky='w')
+    skipend_btn.grid(column=1, row=color_row + 3, sticky='w')
+
+    # Second column of editor
+    startcolor_frame = tk.LabelFrame(listframe, text="Start Color")
+    startcolor_color_frame = tk.Frame(startcolor_frame, bg="black", width=50, height=60)
+
+    startcolor_frame.grid(column=2, row= 0, padx=5, sticky='nw')
+    startcolor_color_frame.grid(column=2, row=1, padx=5, pady=5)
 
 def open_png(file_path):
   image = Image.open(file_path)
@@ -539,6 +594,7 @@ root.geometry("570x775")
 # ugly place to do this but it's gotta be after tk has been initialized
 ICON_IMG = tk.PhotoImage(file=resource_path("icon.png"))
 root.iconphoto(True, ICON_IMG)
+g_ramps_tk = tk.Variable()
 
 frame = tk.Frame(root)
 frame.pack(expand=True)
