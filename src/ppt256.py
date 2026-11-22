@@ -589,7 +589,8 @@ and color editing implementation.
 
 root = tk.Tk()
 root.title("Palpatine 256")
-root.geometry("570x775")
+root.geometry("610x775")
+root.resizable(0,0)
 
 # ugly place to do this but it's gotta be after tk has been initialized
 ICON_IMG = tk.PhotoImage(file=resource_path("icon.png"))
