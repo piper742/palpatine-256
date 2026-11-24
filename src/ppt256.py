@@ -1,5 +1,5 @@
 import tkinter as tk
-import os, sys, math
+import os, sys, math, copy
 from tkinter import Listbox, filedialog, messagebox, scrolledtext, colorchooser
 from PIL import Image
 from dataclasses import dataclass
@@ -80,6 +80,11 @@ def open_file():
     ])
   if not file_paths: return
 
+  # Backup palette just in case our load fails
+  palette_backup = []
+  if len(palette) != 0:
+      palette_backup = copy.deepcopy(palette)
+
   palette = []
   for file_path in file_paths:
     if file_path.endswith(".png"):
@@ -99,6 +104,10 @@ def open_file():
       open_act(file_path)
     elif file_path.endswith(".gpl"):
       open_gpl(file_path)
+
+  # Restore from aborted load
+  if len(palette) == 0 and len(palette_backup) != 0:
+      palette = palette_backup
 
 def load_palette():
   for x in range(rows):
