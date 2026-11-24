@@ -1,5 +1,5 @@
 import tkinter as tk
-import os, sys, math, copy
+import os, sys, math, copy, colorsys
 from tkinter import Listbox, filedialog, messagebox, scrolledtext, colorchooser
 from PIL import Image
 from dataclasses import dataclass
@@ -48,9 +48,134 @@ class TintRamp:
     skipend: bool
 
 ramps: dict[int, TintRamp] = dict()
-g_ramp_cnt = 0
 # Initialized later along with tk
-g_ramps_tk = object()
+
+#### COLOR OPERATIONS
+def normalize_rgb(r: int, g: int, b: int):
+    return (r / 255.0, g / 255.0, b / 255.0)
+
+# Based off of colorsys's H range (0-170)
+def normalize_hsv(h: int, s: int, v: int):
+    return (h / 170.0, s / 255.0, v / 255.0)
+
+# Previous conversion method implemented based off of: https://lettier.github.io/3d-game-shaders-for-beginners/gamma-correction.html
+# Improved conversion implemented from: https://bottosson.github.io/posts/colorwrong/#what-can-we-do%3F
+def linear_rgb_to_srgb(r: float, g: float, b: float):
+    if r >= 0.0031308:
+        r = (1.055) * r ** (1.0/2.4) - 0.055
+    else:
+        r = 12.92 * r
+
+    if g >= 0.0031308:
+        g = (1.055) * g ** (1.0/2.4) - 0.055
+    else:
+        g = 12.92 * g
+
+    if b >= 0.0031308:
+        b = (1.055) * b ** (1.0/2.4) - 0.055
+    else:
+        b = 12.92 * b
+
+    return (r, g, b)
+
+def srgb_to_linear_rgb(r: float, g: float, b: float):
+    if r >= 0.04045:
+        r = ((r + 0.055)/(1 + 0.055))**2.4
+    else:
+        r = r / 12.92
+
+    if g >= 0.04045:
+        g = ((g + 0.055)/(1 + 0.055))**2.4
+    else:
+        g = g / 12.92
+
+    if b >= 0.04045:
+        b = ((b + 0.055)/(1 + 0.055))**2.4
+    else:
+        b = b / 12.92
+
+    return (r, g, b)
+
+# Implementation based off of:
+# https://bottosson.github.io/posts/oklab/
+def linear_rgb_to_oklab(r: float, g: float, b: float):
+    l = 4122214708 * r + 0.5363325363 * g + 0.0514459929 * b
+    m = 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b
+    s = 0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b
+
+    l_ = math.cbrt(l)
+    m_ = math.cbrt(m)
+    s_ = math.cbrt(s)
+
+    labl = 0.2104542553*l_ + 0.7936177850*m_ - 0.0040720468*s_
+    laba = 1.9779984951*l_ - 2.4285922050*m_ + 0.4505937099*s_
+    labb = 0.0259040371*l_ + 0.7827717662*m_ - 0.8086757660*s_
+
+    return (labl, laba, labb)
+
+def oklab_to_linear_rgb(l: float, a: float, b: float):
+    l_ = l + 0.3963377774 * a + 0.2158037573 * b
+    m_ = l - 0.1055613458 * a - 0.0638541728 * b
+    s_ = l - 0.0894841775 * a - 1.2914855480 * b
+
+    l = l_ ** 3.0
+    m = m_ ** 3.0
+    s = s_ ** 3.0
+
+    return (+4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+		    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+		    -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s)
+
+# Implemented from: https://en.wikipedia.org/wiki/Linear_interpolation#Programming_language_support
+# To hopefully ensure starting and ending colors fully match
+def mylerp(a: float, b: float, t: float) -> float:
+    return (1.0 - t) * a + t * b
+
+def color_convert(from_: ColorMode, to: ColorMode, color: TintColor) -> TintColor:
+    """
+    Extremely ugly monolithic function, but it's best to have the whole thing in a single
+    place. I really don't want to keep scouring tiny functions for mistakes
+    """
+    if from_ == to:
+        return color
+
+    if from_ == ColorMode.RGB and to == ColorMode.HSV:
+        r, g, b = normalize_rgb(int(color.x), int(color.y), int(color.z))
+        r, g, b = colorsys.rgb_to_hsv(r, g, b)
+        return TintColor(int(r * 170.0), int(g * 255.0), int(b * 255.0))
+    if from_ == ColorMode.HSV and to == ColorMode.RGB:
+        h, s, v = normalize_hsv(int(color.x), int(color.y), int(color.z))
+        h, s, v = colorsys.hsv_to_rgb(h, s, v)
+        return TintColor(int(h * 255.0), int(s * 255.0), int(v * 255.0))
+
+    if from_ == ColorMode.RGB and to == ColorMode.OKLAB:
+        l, a, b = linear_rgb_to_oklab(*srgb_to_linear_rgb(*normalize_rgb(int(color.x), int(color.y), int(color.z))))
+        return TintColor(l, a, b)
+    if from_ == ColorMode.OKLAB and to == ColorMode.RGB:
+        r, g, b = linear_rgb_to_srgb(*oklab_to_linear_rgb(color.x, color.y, color.z))
+        return TintColor(int(r * 255.0), int(g * 255.0), int(b * 255.0))
+    if from_ == ColorMode.HSV and to == ColorMode.OKLAB:
+        return color_convert(ColorMode.RGB, ColorMode.OKLAB,
+                                color_convert(ColorMode.HSV,
+                                                 ColorMode.RGB, color))
+    if from_ == ColorMode.OKLAB and to == ColorMode.HSV:
+        return color_convert(ColorMode.RGB, ColorMode.HSV,
+                                color_convert(ColorMode.OKLAB,
+                                                 ColorMode.RGB, color))
+
+    # Fallback
+    # TODO: Something like pink missing texture but account
+    # for every colormode/colorspace
+    return TintColor(0,0,0)
+
+def color_to_hex(mode: ColorMode, color: TintColor) -> str:
+    res = color_convert(mode, ColorMode.RGB, color)
+
+    r = int(res.x) & 0xFF
+    g = int(res.y) & 0xFF
+    b = int(res.z) & 0xFF
+
+    return f"#{r:02x}{g:02x}{b:02x}"
 
 def handle_key(event, down: bool):
     global g_shift_down
@@ -184,7 +309,26 @@ def _grid():
       row.append(cell)
     cell_grid.append(row)
 
+def apply_ramps():
+    global ramps
+    for ramp in ramps.values():
+        ramp_len = float(abs(ramp.start - ramp.end))
+        for i in range(ramp.start, ramp.end+1):
+            if ramp.skipstart and i == ramp.start:
+                continue
+            if ramp.skipend and i == ramp.end:
+                continue
+            factor = (i - ramp.start) / ramp_len
 
+            out = color_convert(ramp.type, ColorMode.RGB, TintColor((mylerp(ramp.startcolor.x, ramp.endcolor.x, factor)),
+                          (mylerp(ramp.startcolor.y, ramp.endcolor.y, factor)),
+                          (mylerp(ramp.startcolor.z, ramp.endcolor.z, factor))))
+
+            palette[i] = (int(out.x) & 0xFF,
+                          int(out.y) & 0xFF,
+                          int(out.z) & 0xFF)
+
+    load_palette()
 
 def update_selection():
     for y in range(cols):
@@ -331,11 +475,14 @@ class RampEditorFrame(tk.Frame):
         self.endcolor_y.set(str(endcolor.y))
         self.endcolor_z.set(str(endcolor.z))
 
-        self.startcolor_color_frame.config(bg=f"#{int(startcolor.x):02x}{int(startcolor.y):02x}{int(startcolor.z):02x}")
-        self.endcolor_color_frame.config(bg=f"#{int(endcolor.x):02x}{int(endcolor.y):02x}{int(endcolor.z):02x}")
+        self.startcolor_color_frame.config(bg=color_to_hex(mode, startcolor))
+        self.endcolor_color_frame.config(bg=color_to_hex(mode, endcolor))
 
     def apply_settings(self):
         global ramps
+        if not self.curselection in ramps.keys():
+            return
+
         ramps[self.curselection].type = ColorMode[self.colors_var.get()]
         ramps[self.curselection].startcolor.x = float(self.startcolor_x.get())
         ramps[self.curselection].startcolor.y = float(self.startcolor_y.get())
@@ -345,6 +492,7 @@ class RampEditorFrame(tk.Frame):
         ramps[self.curselection].endcolor.z = float(self.endcolor_z.get())
         ramps[self.curselection].skipstart = bool(self.skipstart_var.get())
         ramps[self.curselection].skipend = bool(self.skipend_var.get())
+        apply_ramps()
 
 
     def lb_callback(self, event):
