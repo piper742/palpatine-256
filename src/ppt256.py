@@ -81,13 +81,6 @@ def open_file():
   if not file_paths: return
 
   palette = []
-
-  # Clear out palette visually to prevent bug
-  # where an image failed to load but the previous palette is still displayed
-  for x in range(rows):
-    for y in range(cols):
-      cell_grid[x][y].config(bg='white')
-
   for file_path in file_paths:
     if file_path.endswith(".png"):
       open_png(file_path)
@@ -185,28 +178,20 @@ def _grid():
 
 
 def update_selection():
-    global palette
     for y in range(cols):
         for x in range(rows):
             color_index = x * cols + y
+            r, g, b = palette[color_index]
 
-            # "Fix" empty palette data upon load fail
-            try:
-                r, g, b = palette[color_index]
+            if g_sel.start != -1:
+                if ((g_sel.start <= color_index <= g_sel.end or g_sel.start >= color_index >= g_sel.end) and g_sel.end != -1) or (g_sel.end == -1 and color_index == g_sel.start):
+                    r = abs(r - 60)
+                    b = 255
+                    g = abs(g - 60)
 
-                if g_sel.start != -1:
-                    if ((g_sel.start <= color_index <= g_sel.end or g_sel.start >= color_index >= g_sel.end) and g_sel.end != -1) or (g_sel.end == -1 and color_index == g_sel.start):
-                        r = abs(r - 60)
-                        b = 255
-                        g = abs(g - 60)
+            hex_color = f"#{r:02x}{g:02x}{b:02x}"
+            cell_grid[x][y].config(bg=hex_color)
 
-                hex_color = f"#{r:02x}{g:02x}{b:02x}"
-                cell_grid[x][y].config(bg=hex_color)
-            except IndexError:
-                print("Palette data missing! Manually correcting!")
-                palette = []
-                for _ in range(256):
-                    palette.append((255, 255, 255))
 
 def edit_selection(val):
     global g_sel, g_shift_down
