@@ -1,5 +1,5 @@
 import tkinter as tk
-import os, sys
+import os, sys, math
 from tkinter import Listbox, filedialog, messagebox, scrolledtext, colorchooser
 from PIL import Image
 from dataclasses import dataclass
@@ -28,7 +28,7 @@ g_sel = Selection(-1, -1)
 
 @dataclass
 class TintColor:
-    # Interpreted based off of colormode
+    "Interpreted based off of colormode"
     x: float
     y: float
     z: float
@@ -36,7 +36,7 @@ class TintColor:
 @dataclass
 class TintRamp:
     start: int
-    len: int
+    end: int
 
     type: ColorMode
     startcolor: TintColor
@@ -230,87 +230,175 @@ def edit_selection(val):
 
     update_selection()
 
-def add_ramp():
-    global g_ramp_cnt
-    """
-    Creates a ramp based off of selection
-    """
 
-    if g_sel.end == -1:
-        return
+class RampEditorFrame(tk.Frame):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.ramp_cnt = 1
+        self.ramps_tk = tk.Variable()
+        self.curselection = -1
+        # Frame + Listbox
+        listbox = Listbox(self, width=20, height=10, listvariable=self.ramps_tk, selectmode=tk.SINGLE, exportselection=False)
+        listbox_scroll = tk.Scrollbar(self)
+        listbox.config(yscrollcommand=listbox_scroll.set)
+        listbox_scroll.config(command=listbox.yview)
+        add_button = tk.Button(self, text="+", command=self.add_ramp, pady=2)
+        trash_button = tk.Button(self, text="trash", pady=2,
+                                 command=lambda: self.del_ramp(listbox.curselection()))
 
-    emptycolor = TintColor(0, 0, 0)
-    
-    ramps[g_ramp_cnt] = (TintRamp(g_sel.start,
-                          abs(g_sel.start - g_sel.end),
-                          ColorMode.HSV,
-                          emptycolor,
-                          emptycolor,
-                          1,
-                          False,
-                          False)
-                 )
-    g_ramp_cnt += 1
-    g_ramps_tk.set(value=tuple(ramps.keys()))
-    print("Added ramp!")
+        listbox.bind("<<ListboxSelect>>", self.lb_callback)
 
-def del_ramp(list_sel):
-    global g_ramps_tk
-    # Real ugly lazy solution to avoid checking whether
-    # we have anything selected in the listbox
-    try:
-        idx = g_ramps_tk.get()[list_sel[0]]
-        del ramps[idx]
-        g_ramps_tk.set(value=tuple(ramps.keys()))
-    except IndexError:
-        pass
 
-def _range_editor():
-    global g_ramps_tk
-    """heavy WIP"""
-    
-    # Frame + Listbox
-    listframe = tk.Frame(frame)
-    listbox = Listbox(listframe, width=20, height=10, listvariable=g_ramps_tk, selectmode=tk.SINGLE)
-    listbox_scroll = tk.Scrollbar(listframe)
-    listbox.config(yscrollcommand=listbox_scroll.set)
-    listbox_scroll.config(command=listbox.yview)
-    add_button = tk.Button(listframe, text="+", command=add_ramp, pady=2)
-    trash_button = tk.Button(listframe, text="trash", pady=2,
-                             command=lambda: del_ramp(listbox.curselection()))
+        listbox.grid(column=0, row=0, rowspan=9, sticky='nw')
+        listbox_scroll.grid(column=0, row=0, rowspan=9, sticky='nse')
+        self.grid(column=0, row=16, columnspan=16, rowspan=10, sticky='w')
+        add_button.grid(column=0, row= 9, padx= 5, sticky='nw')
+        trash_button.grid(column=0, row= 9, padx=50, sticky='nw')
 
-    listbox.grid(column=0, row=0, rowspan=9, sticky='w')
-    listbox_scroll.grid(column=0, row=0, rowspan=9, sticky='nse')
-    listframe.grid(column=0, row=16, columnspan=16, rowspan=9, sticky='w')
-    add_button.grid(column=0, row= 16, padx= 5, pady = 5, sticky='w')
-    trash_button.grid(column=0, row= 16, padx=50, pady = 5, sticky='w')
+        # First column of editor
+        colorframe = tk.LabelFrame(self, text="Color Mode")
+        colorframe.grid(column=1, row=0, padx=5)
+        color_row = 1
+        self.colors_var = tk.StringVar()
+        colors = ('HSV', 'RGB', 'OKLAB')
+        for color in colors:
+            colorradio = tk.Radiobutton(colorframe, text=color, value=color, variable=self.colors_var)
+            colorradio.grid(column=1, row=color_row, sticky='w')
+            color_row += 1
 
-    # First column of editor
-    colorframe = tk.LabelFrame(listframe, text="Color Mode")
-    colorframe.grid(column=1, row=0, padx=5)
-    color_row = 1
-    colors_var = tk.StringVar()
-    colors = ('HSV', 'RGB', 'OKLAB')
-    for color in colors:
-        colorradio = tk.Radiobutton(colorframe, text=color, value=color, variable=colors_var)
-        colorradio.grid(column=1, row=color_row, sticky='w')
-        color_row += 1
+        skipframe = tk.LabelFrame(self, text="Skip")
+        self.skipstart_var = tk.IntVar()
+        self.skipend_var = tk.IntVar()
+        skipstart_btn = tk.Checkbutton(skipframe, text="Start", variable=self.skipstart_var, onvalue=1, offvalue=0)
+        skipend_btn = tk.Checkbutton(skipframe, text="End", variable=self.skipend_var, onvalue=1, offvalue=0)
+        skipframe.grid(column=1, row=color_row + 1, padx=5, sticky='w')
+        skipstart_btn.grid(column=1, row=color_row + 2, sticky='w')
+        skipend_btn.grid(column=1, row=color_row + 3, sticky='w')
 
-    skipframe = tk.LabelFrame(listframe, text="Skip")
-    skipstart_var = tk.IntVar()
-    skipend_var = tk.IntVar()
-    skipstart_btn = tk.Checkbutton(skipframe, text="Start", variable=skipstart_var, onvalue=1, offvalue=0)
-    skipend_btn = tk.Checkbutton(skipframe, text="End", variable=skipend_var, onvalue=1, offvalue=0)
-    skipframe.grid(column=1, row=color_row + 1, padx=5, sticky='w')
-    skipstart_btn.grid(column=1, row=color_row + 2, sticky='w')
-    skipend_btn.grid(column=1, row=color_row + 3, sticky='w')
+        # Second column of editor
+        startcolor_frame = tk.LabelFrame(self, text="Start Color")
+        self.startcolor_color_frame = tk.Frame(startcolor_frame, bg="black", width=50, height=60)
 
-    # Second column of editor
-    startcolor_frame = tk.LabelFrame(listframe, text="Start Color")
-    startcolor_color_frame = tk.Frame(startcolor_frame, bg="black", width=50, height=60)
+        startcolor_frame.grid(column=2, row= 0, columnspan=3, rowspan=3, padx=5, sticky='nw')
+        self.startcolor_color_frame.grid(column=2, row=1, rowspan=3, padx=5, pady=5)
 
-    startcolor_frame.grid(column=2, row= 0, padx=5, sticky='nw')
-    startcolor_color_frame.grid(column=2, row=1, padx=5, pady=5)
+        self.startcolor_x = tk.StringVar()
+        self.startcolor_x_label = tk.Label(startcolor_frame, text="R")
+        self.startcolor_x_sb = tk.Spinbox(startcolor_frame, from_=0, to=255, textvariable=self.startcolor_x, wrap=False, width=5)
+        self.startcolor_x_label.grid(column=3, row=1, padx=5, sticky='w')
+        self.startcolor_x_sb.grid(column=4, row = 1, padx=5, sticky='w')
+
+        self.startcolor_y = tk.StringVar()
+        self.startcolor_y_label = tk.Label(startcolor_frame, text="G")
+        self.startcolor_y_sb = tk.Spinbox(startcolor_frame, from_=0, to=255, textvariable=self.startcolor_y, wrap=False, width=5)
+        self.startcolor_y_label.grid(column=3, row=2, padx=5, sticky='w')
+        self.startcolor_y_sb.grid(column=4, row = 2, padx=5, sticky='w')
+
+        self.startcolor_z = tk.StringVar()
+        self.startcolor_z_label = tk.Label(startcolor_frame, text="B")
+        self.startcolor_z_sb = tk.Spinbox(startcolor_frame, from_=0, to=255, textvariable=self.startcolor_z, wrap=False, width=5)
+        self.startcolor_z_label.grid(column=3, row=3, padx=5, sticky='w')
+        self.startcolor_z_sb.grid(column=4, row = 3, padx=5, sticky='w')
+
+
+        endcolor_frame = tk.LabelFrame(self, text="End Color")
+        self.endcolor_color_frame = tk.Frame(endcolor_frame, bg="black", width=50, height=60)
+
+        endcolor_frame.grid(column=2, row=4, columnspan=3, rowspan=3, padx=5, sticky='nw')
+        self.endcolor_color_frame.grid(column=2, row=5, rowspan=3, padx=5, pady=5)
+
+        self.endcolor_x = tk.StringVar()
+        self.endcolor_x_label = tk.Label(endcolor_frame, text="R")
+        self.endcolor_x_sb = tk.Spinbox(endcolor_frame, from_=0, to=255, textvariable=self.endcolor_x, wrap=False, width=5)
+        self.endcolor_x_label.grid(column=3, row=5, padx=5, sticky='w')
+        self.endcolor_x_sb.grid(column=4, row = 5, padx=5, sticky='w')
+
+        self.endcolor_y = tk.StringVar()
+        self.endcolor_y_label = tk.Label(endcolor_frame, text="G")
+        self.endcolor_y_sb = tk.Spinbox(endcolor_frame, from_=0, to=255, textvariable=self.endcolor_y, wrap=False, width=5)
+        self.endcolor_y_label.grid(column=3, row=6, padx=5, sticky='w')
+        self.endcolor_y_sb.grid(column=4, row = 6, padx=5, sticky='w')
+
+        self.endcolor_z = tk.StringVar()
+        self.endcolor_z_label = tk.Label(endcolor_frame, text="B")
+        self.endcolor_z_sb = tk.Spinbox(endcolor_frame, from_=0, to=255, textvariable=self.endcolor_z, wrap=False, width=5)
+        self.endcolor_z_label.grid(column=3, row=7, padx=5, sticky='w')
+        self.endcolor_z_sb.grid(column=4, row = 7, padx=5, sticky='w')
+
+        apply_btn = tk.Button(self, text='Apply', height=2, width=5, command=self.apply_settings)
+        apply_btn.grid(column=7, row=5, padx=5, pady=5)
+
+    def update_editor_colors(self, mode: ColorMode, startcolor: TintColor, endcolor: TintColor):
+        self.colors_var.set(mode.name)
+        self.startcolor_x.set(str(startcolor.x))
+        self.startcolor_y.set(str(startcolor.y))
+        self.startcolor_z.set(str(startcolor.z))
+        self.endcolor_x.set(str(endcolor.x))
+        self.endcolor_y.set(str(endcolor.y))
+        self.endcolor_z.set(str(endcolor.z))
+
+        self.startcolor_color_frame.config(bg=f"#{int(startcolor.x):02x}{int(startcolor.y):02x}{int(startcolor.z):02x}")
+        self.endcolor_color_frame.config(bg=f"#{int(endcolor.x):02x}{int(endcolor.y):02x}{int(endcolor.z):02x}")
+
+    def apply_settings(self):
+        global ramps
+        ramps[self.curselection].type = ColorMode[self.colors_var.get()]
+        ramps[self.curselection].startcolor.x = float(self.startcolor_x.get())
+        ramps[self.curselection].startcolor.y = float(self.startcolor_y.get())
+        ramps[self.curselection].startcolor.z = float(self.startcolor_z.get())
+        ramps[self.curselection].endcolor.x = float(self.endcolor_x.get())
+        ramps[self.curselection].endcolor.y = float(self.endcolor_y.get())
+        ramps[self.curselection].endcolor.z = float(self.endcolor_z.get())
+        ramps[self.curselection].skipstart = bool(self.skipstart_var.get())
+        ramps[self.curselection].skipend = bool(self.skipend_var.get())
+
+
+    def lb_callback(self, event):
+        global ramps
+        sel = event.widget.curselection()
+        idx = 0
+        try:
+            idx = self.ramps_tk.get()[sel[0]]
+        except IndexError:
+            return
+        self.curselection = idx
+        self.update_editor_colors(ramps[idx].type, ramps[idx].startcolor, ramps[idx].endcolor)
+        self.skipstart_var.set(int(ramps[idx].skipstart))
+        self.skipend_var.set(int(ramps[idx].skipend))
+
+    def add_ramp(self):
+        global ramps
+        """
+        Creates a ramp based off of selection
+        """
+
+        if g_sel.end == -1:
+            return
+
+        ramps[self.ramp_cnt] = (TintRamp(g_sel.start,
+                              g_sel.end,
+                              ColorMode.HSV,
+                              TintColor(0,0,0),
+                              TintColor(0,0,0),
+                              1,
+                              False,
+                              False)
+                     )
+        self.ramp_cnt += 1
+        self.ramps_tk.set(value=tuple(ramps.keys()))
+        print("Added ramp!")
+
+    def del_ramp(self, list_sel):
+        global ramps
+        # Real ugly lazy solution to avoid checking whether
+        # we have anything selected in the listbox
+        try:
+            idx = self.ramps_tk.get()[list_sel[0]]
+            del ramps[idx]
+            self.ramps_tk.set(value=tuple(ramps.keys()))
+        except IndexError:
+            pass
+
 
 def open_png(file_path):
   image = Image.open(file_path)
@@ -608,9 +696,8 @@ root.geometry("610x775")
 root.resizable(0,0)
 
 # ugly place to do this but it's gotta be after tk has been initialized
-ICON_IMG = tk.PhotoImage(file=resource_path("icon.png"))
+ICON_IMG = tk.PhotoImage(master=root, file=resource_path("icon.png"))
 root.iconphoto(True, ICON_IMG)
-g_ramps_tk = tk.Variable()
 
 frame = tk.Frame(root)
 frame.pack(expand=True)
@@ -638,7 +725,8 @@ for _ in range(256):
     palette.append((255, 255, 255))
 
 _grid()
-_range_editor()
+#_range_editor()
+test = RampEditorFrame(frame)
 
 root.bind("<Control-o>", lambda event: open_file())
 root.bind("<Control-s>", lambda event: export_file())
