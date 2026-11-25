@@ -55,8 +55,8 @@ def normalize_rgb(r: int, g: int, b: int):
     return (r / 255.0, g / 255.0, b / 255.0)
 
 # Based off of colorsys's H range (0-170)
-def normalize_hsv(h: int, s: int, v: int):
-    return (h / 170.0, s / 255.0, v / 255.0)
+def normalize_hsv(h: int, s: float, v: float):
+    return (h / 360.0, s / 100.0, v / 100.0)
 
 # Previous conversion method implemented based off of: https://lettier.github.io/3d-game-shaders-for-beginners/gamma-correction.html
 # Improved conversion implemented from: https://bottosson.github.io/posts/colorwrong/#what-can-we-do%3F
@@ -142,18 +142,18 @@ def color_convert(from_: ColorMode, to: ColorMode, color: TintColor) -> TintColo
     if from_ == ColorMode.RGB and to == ColorMode.HSV:
         r, g, b = normalize_rgb(int(color.x), int(color.y), int(color.z))
         r, g, b = colorsys.rgb_to_hsv(r, g, b)
-        return TintColor(int(r * 170.0), int(g * 255.0), int(b * 255.0))
+        return TintColor(int(round(r * 360.0)), int(round(g * 100.0)), int(round(b * 100.0)))
     if from_ == ColorMode.HSV and to == ColorMode.RGB:
-        h, s, v = normalize_hsv(int(color.x), int(color.y), int(color.z))
+        h, s, v = normalize_hsv(int(round(color.x)), color.y, color.z)
         h, s, v = colorsys.hsv_to_rgb(h, s, v)
-        return TintColor(int(h * 255.0), int(s * 255.0), int(v * 255.0))
+        return TintColor(int(round(h * 255.0)), int(round(s * 255.0)), int(round(v * 255.0)))
 
     if from_ == ColorMode.RGB and to == ColorMode.OKLAB:
         l, a, b = linear_rgb_to_oklab(*srgb_to_linear_rgb(*normalize_rgb(int(color.x), int(color.y), int(color.z))))
         return TintColor(l, a, b)
     if from_ == ColorMode.OKLAB and to == ColorMode.RGB:
         r, g, b = linear_rgb_to_srgb(*oklab_to_linear_rgb(color.x, color.y, color.z))
-        return TintColor(int(r * 255.0), int(g * 255.0), int(b * 255.0))
+        return TintColor(int(round(r * 255.0)), int(round(g * 255.0)), int(round(b * 255.0)))
     if from_ == ColorMode.HSV and to == ColorMode.OKLAB:
         return color_convert(ColorMode.RGB, ColorMode.OKLAB,
                                 color_convert(ColorMode.HSV,
@@ -171,11 +171,28 @@ def color_convert(from_: ColorMode, to: ColorMode, color: TintColor) -> TintColo
 def color_to_hex(mode: ColorMode, color: TintColor) -> str:
     res = color_convert(mode, ColorMode.RGB, color)
 
-    r = int(res.x) & 0xFF
-    g = int(res.y) & 0xFF
-    b = int(res.z) & 0xFF
+    r = int(round(res.x)) & 0xFF
+    g = int(round(res.y)) & 0xFF
+    b = int(round(res.z)) & 0xFF
 
     return f"#{r:02x}{g:02x}{b:02x}"
+
+def hex_to_color(mode: ColorMode, color: str) -> TintColor:
+    # Attempt to fix up badly formatted color
+    if color[0] != '#' and len(color) == 6:
+        color = '#' + color
+
+    if color[0] == '#':
+        r = int(color[1:3], 16)
+        g = int(color[3:5], 16)
+        b = int(color[5:7], 16)
+        col = TintColor(float(r), float(g), float(b))
+        return color_convert(ColorMode.RGB, mode, col)
+    else:
+        print(f"Error! Malformed hex color code {color}")
+
+    # Fallback
+    return TintColor(0,0,0)
 
 def handle_key(event, down: bool):
     global g_shift_down
@@ -324,11 +341,11 @@ def apply_ramps():
                           (mylerp(ramp.startcolor.y, ramp.endcolor.y, factor)),
                           (mylerp(ramp.startcolor.z, ramp.endcolor.z, factor))))
 
-            palette[i] = (int(out.x) & 0xFF,
-                          int(out.y) & 0xFF,
-                          int(out.z) & 0xFF)
-
-    load_palette()
+            palette[i] = (int(round(out.x)) & 0xFF,
+                          int(round(out.y)) & 0xFF,
+                          int(round(out.z)) & 0xFF)
+    update_selection()
+    #load_palette()
 
 def update_selection():
     for y in range(cols):
@@ -376,18 +393,18 @@ class RampEditorFrame(tk.Frame):
         self.ramps_tk = tk.Variable()
         self.curselection = -1
         # Frame + Listbox
-        listbox = Listbox(self, width=20, height=10, listvariable=self.ramps_tk, selectmode=tk.SINGLE, exportselection=False)
+        self.listbox = Listbox(self, width=20, height=10, listvariable=self.ramps_tk, selectmode=tk.SINGLE, exportselection=False)
         listbox_scroll = tk.Scrollbar(self)
-        listbox.config(yscrollcommand=listbox_scroll.set)
-        listbox_scroll.config(command=listbox.yview)
+        self.listbox.config(yscrollcommand=listbox_scroll.set)
+        listbox_scroll.config(command=self.listbox.yview)
         add_button = tk.Button(self, text="+", command=self.add_ramp, pady=2)
         trash_button = tk.Button(self, text="trash", pady=2,
-                                 command=lambda: self.del_ramp(listbox.curselection()))
+                                 command=lambda: self.del_ramp(self.listbox.curselection()))
 
-        listbox.bind("<<ListboxSelect>>", self.lb_callback)
+        self.listbox.bind("<<ListboxSelect>>", self.lb_callback)
 
 
-        listbox.grid(column=0, row=0, rowspan=9, sticky='nw')
+        self.listbox.grid(column=0, row=0, rowspan=9, sticky='nw')
         listbox_scroll.grid(column=0, row=0, rowspan=9, sticky='nse')
         self.grid(column=0, row=16, columnspan=16, rowspan=10, sticky='w')
         add_button.grid(column=0, row= 9, padx= 5, sticky='nw')
@@ -400,7 +417,7 @@ class RampEditorFrame(tk.Frame):
         self.colors_var = tk.StringVar()
         colors = ('HSV', 'RGB', 'OKLAB')
         for color in colors:
-            colorradio = tk.Radiobutton(colorframe, text=color, value=color, variable=self.colors_var)
+            colorradio = tk.Radiobutton(colorframe, text=color, value=color, variable=self.colors_var, command=self.rb_callback)
             colorradio.grid(column=1, row=color_row, sticky='w')
             color_row += 1
 
@@ -421,20 +438,23 @@ class RampEditorFrame(tk.Frame):
         self.startcolor_color_frame.grid(column=2, row=1, rowspan=3, padx=5, pady=5)
 
         self.startcolor_x = tk.StringVar()
+        self.startcolor_x.trace_add("write", self.temp_color_update)
         self.startcolor_x_label = tk.Label(startcolor_frame, text="R")
-        self.startcolor_x_sb = tk.Spinbox(startcolor_frame, from_=0, to=255, textvariable=self.startcolor_x, wrap=False, width=5)
+        self.startcolor_x_sb = tk.Spinbox(startcolor_frame, from_=0, to=255, textvariable=self.startcolor_x, wrap=False, width=6, command=self.temp_color_update)
         self.startcolor_x_label.grid(column=3, row=1, padx=5, sticky='w')
         self.startcolor_x_sb.grid(column=4, row = 1, padx=5, sticky='w')
 
         self.startcolor_y = tk.StringVar()
+        self.startcolor_y.trace_add("write", self.temp_color_update)
         self.startcolor_y_label = tk.Label(startcolor_frame, text="G")
-        self.startcolor_y_sb = tk.Spinbox(startcolor_frame, from_=0, to=255, textvariable=self.startcolor_y, wrap=False, width=5)
+        self.startcolor_y_sb = tk.Spinbox(startcolor_frame, from_=0, to=255, textvariable=self.startcolor_y, wrap=False, width=6, command=self.temp_color_update)
         self.startcolor_y_label.grid(column=3, row=2, padx=5, sticky='w')
         self.startcolor_y_sb.grid(column=4, row = 2, padx=5, sticky='w')
 
         self.startcolor_z = tk.StringVar()
+        self.startcolor_z.trace_add("write", self.temp_color_update)
         self.startcolor_z_label = tk.Label(startcolor_frame, text="B")
-        self.startcolor_z_sb = tk.Spinbox(startcolor_frame, from_=0, to=255, textvariable=self.startcolor_z, wrap=False, width=5)
+        self.startcolor_z_sb = tk.Spinbox(startcolor_frame, from_=0, to=255, textvariable=self.startcolor_z, wrap=False, width=6, command=self.temp_color_update)
         self.startcolor_z_label.grid(column=3, row=3, padx=5, sticky='w')
         self.startcolor_z_sb.grid(column=4, row = 3, padx=5, sticky='w')
 
@@ -446,25 +466,63 @@ class RampEditorFrame(tk.Frame):
         self.endcolor_color_frame.grid(column=2, row=5, rowspan=3, padx=5, pady=5)
 
         self.endcolor_x = tk.StringVar()
+        self.endcolor_x.trace_add("write", self.temp_color_update)
         self.endcolor_x_label = tk.Label(endcolor_frame, text="R")
-        self.endcolor_x_sb = tk.Spinbox(endcolor_frame, from_=0, to=255, textvariable=self.endcolor_x, wrap=False, width=5)
+        self.endcolor_x_sb = tk.Spinbox(endcolor_frame, from_=0, to=255, textvariable=self.endcolor_x, wrap=False, width=6, command=self.temp_color_update)
         self.endcolor_x_label.grid(column=3, row=5, padx=5, sticky='w')
         self.endcolor_x_sb.grid(column=4, row = 5, padx=5, sticky='w')
 
         self.endcolor_y = tk.StringVar()
+        self.endcolor_y.trace_add("write", self.temp_color_update)
         self.endcolor_y_label = tk.Label(endcolor_frame, text="G")
-        self.endcolor_y_sb = tk.Spinbox(endcolor_frame, from_=0, to=255, textvariable=self.endcolor_y, wrap=False, width=5)
+        self.endcolor_y_sb = tk.Spinbox(endcolor_frame, from_=0, to=255, textvariable=self.endcolor_y, wrap=False, width=6, command=self.temp_color_update)
         self.endcolor_y_label.grid(column=3, row=6, padx=5, sticky='w')
         self.endcolor_y_sb.grid(column=4, row = 6, padx=5, sticky='w')
 
         self.endcolor_z = tk.StringVar()
+        self.endcolor_z.trace_add("write", self.temp_color_update)
         self.endcolor_z_label = tk.Label(endcolor_frame, text="B")
-        self.endcolor_z_sb = tk.Spinbox(endcolor_frame, from_=0, to=255, textvariable=self.endcolor_z, wrap=False, width=5)
+        self.endcolor_z_sb = tk.Spinbox(endcolor_frame, from_=0, to=255, textvariable=self.endcolor_z, wrap=False, width=6, command=self.temp_color_update)
         self.endcolor_z_label.grid(column=3, row=7, padx=5, sticky='w')
         self.endcolor_z_sb.grid(column=4, row = 7, padx=5, sticky='w')
 
-        apply_btn = tk.Button(self, text='Apply', height=2, width=5, command=self.apply_settings)
-        apply_btn.grid(column=7, row=5, padx=5, pady=5)
+        self.apply_btn = tk.Button(self, text='Apply', height=2, width=5, command=self.apply_settings, state='disabled')
+        self.apply_btn.grid(column=7, row=5, padx=5, pady=5)
+
+    def temp_color_update(self, *args):
+        if self.curselection == -1:
+            return
+
+        mode = ColorMode[self.colors_var.get()]
+
+        # TODO: Expand logic to other places where this conversion
+        # is done!!!
+        sx = self.startcolor_x.get()
+        sy = self.startcolor_y.get()
+        sz = self.startcolor_z.get()
+
+        ex = self.endcolor_x.get()
+        ey = self.endcolor_y.get()
+        ez = self.endcolor_z.get()
+
+        if sx == "": sx = '0'
+        if sy == "": sy = '0'
+        if sz == "": sz = '0'
+
+        if ex == "": ex = '0'
+        if ey == "": ey = '0'
+        if ez == "": ez = '0'
+
+        startcolor = TintColor(float(sx),
+                               float(sy),
+                               float(sz))
+
+        endcolor = TintColor(float(ex),
+                               float(ey),
+                               float(ez))
+
+        self.startcolor_color_frame.config(bg=color_to_hex(mode, startcolor))
+        self.endcolor_color_frame.config(bg=color_to_hex(mode, endcolor))
 
     def update_editor_colors(self, mode: ColorMode, startcolor: TintColor, endcolor: TintColor):
         self.colors_var.set(mode.name)
@@ -474,6 +532,51 @@ class RampEditorFrame(tk.Frame):
         self.endcolor_x.set(str(endcolor.x))
         self.endcolor_y.set(str(endcolor.y))
         self.endcolor_z.set(str(endcolor.z))
+
+        if mode == ColorMode.HSV:
+            self.startcolor_x_label.config(text='H')
+            self.startcolor_x_sb.config(from_=0, to=360, increment=1, format="%.0f")
+            self.endcolor_x_label.config(text='H')
+            self.endcolor_x_sb.config(from_=0, to=360, increment=1, format="%.0f")
+            
+            self.startcolor_y_label.config(text='S')
+            self.startcolor_y_sb.config(from_=0.0, to=100.0, increment=0.1, format="%.1f")
+            self.startcolor_z_label.config(text='V')
+            self.startcolor_z_sb.config(from_=0.0, to=100.0, increment=0.1, format="%.1f")
+            self.endcolor_y_label.config(text='S')
+            self.endcolor_y_sb.config(from_=0.0, to=100.0, increment=0.1, format="%.1f")
+            self.endcolor_z_label.config(text='V')
+            self.endcolor_z_sb.config(from_=0.0, to=100.0, increment=0.1, format="%.1f")
+
+        if mode == ColorMode.RGB:
+            self.startcolor_x_label.config(text='R')
+            self.startcolor_x_sb.config(from_=0, to=255, increment=1, format="%.0f")
+            self.startcolor_y_label.config(text='G')
+            self.startcolor_y_sb.config(from_=0, to=255, increment=1, format="%.0f")
+            self.startcolor_z_label.config(text='B')
+            self.startcolor_z_sb.config(from_=0, to=255, increment=1, format="%.0f")
+            self.endcolor_x_label.config(text='R')
+            self.endcolor_x_sb.config(from_=0, to=255, increment=1, format="%.0f")
+            self.endcolor_y_label.config(text='G')
+            self.endcolor_y_sb.config(from_=0, to=255, increment=1, format="%.0f")
+            self.endcolor_z_label.config(text='B')
+            self.endcolor_z_sb.config(from_=0, to=255, increment=1, format="%.0f")
+
+        if mode == ColorMode.OKLAB:
+            self.startcolor_x_label.config(text='L')
+            self.startcolor_x_sb.config(from_=0.0, to=1.0, increment=0.01, format="%.4f")
+            self.startcolor_y_label.config(text='a')
+            self.startcolor_y_sb.config(from_=-0.4, to=0.4, increment=0.01, format="%.4f")
+            self.startcolor_z_label.config(text='b')
+            self.startcolor_z_sb.config(from_=-0.4, to=0.4, increment=0.01, format="%.4f")
+
+            self.endcolor_x_label.config(text='L')
+            self.endcolor_x_sb.config(from_=0.0, to=1.0, increment=0.01, format="%.4f")
+            self.endcolor_y_label.config(text='a')
+            self.endcolor_y_sb.config(from_=-0.4, to=0.4, increment=0.01, format="%.4f")
+            self.endcolor_z_label.config(text='b')
+            self.endcolor_z_sb.config(from_=-0.4, to=0.4, increment=0.01, format="%.4f")
+            
 
         self.startcolor_color_frame.config(bg=color_to_hex(mode, startcolor))
         self.endcolor_color_frame.config(bg=color_to_hex(mode, endcolor))
@@ -494,6 +597,19 @@ class RampEditorFrame(tk.Frame):
         ramps[self.curselection].skipend = bool(self.skipend_var.get())
         apply_ramps()
 
+    def rb_callback(self):
+        if self.curselection == -1:
+            return
+
+        currentcolormode = ramps[self.curselection].type
+        targetcolormode = ColorMode[self.colors_var.get()]
+        
+        start_convert = color_convert(currentcolormode, targetcolormode, ramps[self.curselection].startcolor)
+        end_convert = color_convert(currentcolormode, targetcolormode, ramps[self.curselection].endcolor)
+
+        self.update_editor_colors(targetcolormode, start_convert, end_convert)
+
+        pass
 
     def lb_callback(self, event):
         global ramps
@@ -504,6 +620,7 @@ class RampEditorFrame(tk.Frame):
         except IndexError:
             return
         self.curselection = idx
+        self.apply_btn.config(state='normal')
         self.update_editor_colors(ramps[idx].type, ramps[idx].startcolor, ramps[idx].endcolor)
         self.skipstart_var.set(int(ramps[idx].skipstart))
         self.skipend_var.set(int(ramps[idx].skipend))
@@ -528,7 +645,17 @@ class RampEditorFrame(tk.Frame):
                      )
         self.ramp_cnt += 1
         self.ramps_tk.set(value=tuple(ramps.keys()))
-        print("Added ramp!")
+
+        edit_selection(-1)
+        
+        # Always select our new ramp
+        self.listbox.selection_clear(0, tk.END)
+        lb_siz = len(self.ramps_tk.get()) - 1
+        self.listbox.selection_set(lb_siz)
+        self.listbox.see(lb_siz)
+        self.listbox.activate(lb_siz)
+        self.listbox.selection_anchor(lb_siz)
+        self.listbox.event_generate("<<ListboxSelect>>")
 
     def del_ramp(self, list_sel):
         global ramps
@@ -537,7 +664,17 @@ class RampEditorFrame(tk.Frame):
         try:
             idx = self.ramps_tk.get()[list_sel[0]]
             del ramps[idx]
+            self.apply_btn.config(state='disabled')
             self.ramps_tk.set(value=tuple(ramps.keys()))
+
+            if list_sel[0] != 0:
+                self.listbox.selection_clear(0, tk.END)
+                self.listbox.selection_set((list_sel[0]-1))
+                self.listbox.see((list_sel[0]-1))
+                self.listbox.activate((list_sel[0]-1))
+                self.listbox.selection_anchor((list_sel[0]-1))
+                # Realize our selection changed
+                self.listbox.event_generate("<<ListboxSelect>>")
         except IndexError:
             pass
 
