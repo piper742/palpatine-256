@@ -41,7 +41,7 @@ class TintRamp:
     type: ColorMode
     startcolor: TintColor
     endcolor: TintColor
-    step: int
+    #step: int # TODO low priority: for BUILD DAT compatibility
 
     # kinda rough conversion of skip value
     skipstart: bool
@@ -315,7 +315,9 @@ def edit_color(row, col):
         cell_grid[row][col].config(bg=new_hex)
 
 def _grid():
-  
+  # Just assuming this is expensive
+  ISWINDOWS = bool(sys.platform == "win32")
+
   for x in range(rows):
     row = []
     for y in range(cols):
@@ -323,6 +325,11 @@ def _grid():
       cell.grid(row=x, column=y)
       cell.bind("<Button-1>", lambda event, ind = (x * cols + y): edit_selection(ind))
       cell.bind("<Double-1>", lambda event, r=x, c=y: edit_color(r, c))
+      if ISWINDOWS == True:
+        cell.bind("<MouseWheel>", scroll_selection)
+      else:
+        cell.bind("<Button-4>", scroll_selection)
+        cell.bind("<Button-5>", scroll_selection)
       row.append(cell)
     cell_grid.append(row)
 
@@ -385,6 +392,20 @@ def edit_selection(val):
 
     update_selection()
 
+def scroll_selection(event):
+    global g_sel
+
+    if g_sel.start == -1:
+        return
+    elif g_sel.end == -1:
+        g_sel.end = g_sel.start
+
+    if event.num == 5 or event.delta == -120:
+        g_sel.end -= 1
+    if event.num == 4 or event.delta == 120:
+        g_sel.end += 1
+
+    update_selection()
 
 class RampEditorFrame(tk.Frame):
     def __init__(self, parent):
@@ -639,7 +660,7 @@ class RampEditorFrame(tk.Frame):
                               ColorMode.HSV,
                               TintColor(0,0,0),
                               TintColor(0,0,0),
-                              1,
+                              #1,
                               False,
                               False)
                      )
