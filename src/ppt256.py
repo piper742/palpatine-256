@@ -99,7 +99,7 @@ def srgb_to_linear_rgb(r: float, g: float, b: float):
 # Implementation based off of:
 # https://bottosson.github.io/posts/oklab/
 def linear_rgb_to_oklab(r: float, g: float, b: float):
-    l = 4122214708 * r + 0.5363325363 * g + 0.0514459929 * b
+    l = 0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b
     m = 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b
     s = 0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b
 
