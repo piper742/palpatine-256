@@ -281,6 +281,7 @@ def export_file():
   global file_path
   file_path = filedialog.asksaveasfilename(title="Select a Palette File", filetypes=[
     ("PNG Files", "*.png"),
+    ("Raw pixel data", "*.raw"),
     ("Palette Lump", "*.lmp"),
     ("JASC Palette", "*.pal"),
     ("Microsoft Palette", "*.mspal"),
@@ -296,6 +297,8 @@ def export_file():
   print(file_path)
   if file_path.endswith(".png"):
     export_png()
+  elif file_path.endswith(".raw"):
+    export_raw_pal()
   elif file_path.endswith(".lmp"):
     export_lmp()
   elif file_path.endswith(".pal"):
@@ -934,6 +937,21 @@ def export_png():
   image.save(file_path, format="PNG")
 
 ### RAW DATA TYPES
+def export_raw_pal():
+    global file_path, palette
+
+    out = bytearray()
+    for color in palette:
+        out.append(color[0] & 0xFF)
+        out.append(color[1] & 0xFF)
+        out.append(color[2] & 0xFF)
+
+    try:
+        with open(file_path, "wb") as f_lmp:
+            f_lmp.write(out)
+    except IOError as e:
+        messagebox.showerror("Error", f"Error writing to {file_path}: {e}")
+
 
 # TODO: Show small export options window after selecting file
 # TODO: Per color ramp blacklist
