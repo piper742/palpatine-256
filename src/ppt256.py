@@ -48,9 +48,27 @@ class TintRamp:
     skipend: bool
 
 ramps: dict[int, TintRamp] = dict()
+distances: dict[int, float] = dict()
 # Initialized later along with tk
 
 #### COLOR OPERATIONS
+# Based off of code: https://code-examples.net/en/q/4c0ad1f/solving-the-closest-color-problem-with-python
+# Distances is a global variable due to a tiny performance improvement
+def closest_index_to_rgb(rgb: tuple[int, int, int], r_weight, g_weight, b_weight) -> int:
+    """
+    Returns closest index in palette to the specified RGB color.
+    The idea for RGB weights is from Ken Silverman's TRANSPAL program
+    """
+    global palette, distances
+    distances.clear()
+
+    for idx, color in enumerate(palette):
+        distances[idx] = math.sqrt(r_weight * (color[0] - rgb[0]) ** 2.0 +
+                                 g_weight * (color[1] - rgb[1]) ** 2.0 +
+                                 b_weight * (color[2] - rgb[2]) ** 2.0)
+
+    return min(distances, key=distances.get)
+
 def normalize_rgb(r: int, g: int, b: int):
     return (r / 255.0, g / 255.0, b / 255.0)
 
@@ -915,6 +933,70 @@ def export_png():
 
   image.save(file_path, format="PNG")
 
+### RAW DATA TYPES
+
+# TODO: Show small export options window after selecting file
+# TODO: Per color ramp blacklist
+# TODO: Toggle for OKLAB & RGB (classic) mode
+def export_raw_shade():
+    """
+    Writes a 32 shade table in raw palette pixel
+    index values, with no header.
+    """
+    global palette
+
+    file_path = filedialog.asksaveasfilename(title="Select a RAW Shade File", filetypes=[
+    ("Raw pixel data", "*.raw"),
+    ],
+    defaultextension="*.*")
+    if not file_path: return
+
+    # We used EDuke32's fixed 32 shade table
+    # Def isn't able to load ones bigger than 32
+    shadeimg = Image.new("RGB", (256,32))
+    
+    # Fill first row
+    for i in range(256):
+        shadeimg.putpixel((i, 0), palette[i])
+
+    # Create rest of table
+    pureblack = TintColor(0,0,0)
+    for x in range(256):
+        #okcol = color_convert(ColorMode.RGB, ColorMode.OKLAB, TintColor(*palette[x]))
+        for y in range(31):
+            factor = (y + 1) / 31
+            if x >= 240:
+                outtint = TintColor(*palette[x])
+            else:
+                #outtint = color_convert(ColorMode.OKLAB, ColorMode.RGB,
+                #                        TintColor(mylerp(okcol.x, pureblack.x, factor),
+                #                                  mylerp(okcol.y, pureblack.y, factor),
+                #                                  mylerp(okcol.z, pureblack.z, factor),
+                #                        ))
+                outtint = TintColor(mylerp(palette[x][0], pureblack.x, factor),
+                                    mylerp(palette[x][1], pureblack.y, factor),
+                                    mylerp(palette[x][2], pureblack.z, factor))
+
+            shadeimg.putpixel((x, y+1), (int(outtint.x) & 0xFF, int(outtint.y) & 0xFF, int(outtint.z) & 0xFF))
+
+    flat_palette = [component for color in palette for component in color]
+
+    finalshade = Image.new('P', (256,32))
+    finalshade.putpalette(flat_palette)
+
+    for x in range(256):
+        for y in range(32):
+            # The idea and values for the RGB weights are from Ken Silverman's TRANSPAL program
+            # specifically the ones he specified for his demo
+            finalshade.putpixel((x,y), closest_index_to_rgb(shadeimg.getpixel((x,y)), 30, 59, 11))
+
+    finalshade.save(str(os.path.splitext(file_path)[0]) + "_preview.png", format="PNG")
+    try:
+        with open(file_path, "wb") as f_lmp:
+            f_lmp.write(finalshade.tobytes(encoder_name="raw"))
+    except IOError as e:
+        messagebox.showerror("Error", f"Error writing to {file_path}: {e}")
+
 def about():
     message = """
         Palpatine 256
@@ -1014,7 +1096,7 @@ file_menu.add_command(label="Exit", command=lambda: root.destroy(), accelerator=
 
 generate_menu = tk.Menu(menu, tearoff=0)
 menu.add_cascade(label="Generate", menu=generate_menu)
-generate_menu.add_command(label="Shade table TODO")
+generate_menu.add_command(label="Shade table", command=export_raw_shade, accelerator="Alt+S")
 generate_menu.add_separator()
 generate_menu.add_command(label="Blend table TODO")
 generate_menu.add_separator()
@@ -1042,6 +1124,7 @@ root.bind("<Control-s>", lambda event: export_file())
 root.bind("<Control-h>", lambda event: help())
 root.bind("<Control-q>", lambda event: root.destroy())
 root.bind("<Escape>", lambda event: edit_selection(-1))
+root.bind("<Alt-s>", lambda event: export_raw_shade())
 
 # Used to implement alternative modes eg holding down shift
 root.bind("<KeyPress>", lambda event: handle_key(event, True))
