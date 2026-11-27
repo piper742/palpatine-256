@@ -376,12 +376,30 @@ def apply_ramps():
     #load_palette()
 
 def update_selection():
+    updated_ramp_sel = False
+
     for y in range(cols):
         for x in range(rows):
+            dosel = False
             color_index = x * cols + y
             r, g, b = palette[color_index]
+            cell_grid[x][y].config(relief="sunken")
 
             if g_sel.start != -1:
+                # Show ramp selection
+                for ramp_id, ramp in ramps.items():
+                    # Exetremly ugly if to handle proper skip start and end
+                    if ramp.skipstart == True and ramp.skipend == True and ramp.start < g_sel.start < ramp.end and ramp.start < color_index < ramp.end: dosel = True
+                    if ramp.skipstart == False and ramp.skipend == True and ramp.start <= g_sel.start < ramp.end and ramp.start <= color_index < ramp.end: dosel = True
+                    if ramp.skipstart == True and ramp.skipend == False and ramp.start < g_sel.start <= ramp.end and ramp.start < color_index <= ramp.end: dosel = True
+                    if ramp.skipstart == False and ramp.skipend == False and ramp.start <= g_sel.start <= ramp.end and ramp.start <= color_index <= ramp.end: dosel = True
+
+                    if dosel == True:
+                        cell_grid[x][y].config(relief="solid")
+                        if updated_ramp_sel == False:
+                            rampeditor_.force_select_ramp(ramp_id)
+                            updated_ramp_sel = True
+
                 if ((g_sel.start <= color_index <= g_sel.end or g_sel.start >= color_index >= g_sel.end) and g_sel.end != -1) or (g_sel.end == -1 and color_index == g_sel.start):
                     r = abs(r - 60)
                     b = 255
@@ -667,6 +685,15 @@ class RampEditorFrame(tk.Frame):
         self.skipstart_var.set(int(ramps[idx].skipstart))
         self.skipend_var.set(int(ramps[idx].skipend))
 
+    def force_select_ramp(self, index):
+        self.listbox.selection_clear(0, tk.END)
+        rid = list(self.ramps_tk.get()).index(index)
+        self.listbox.selection_set(rid)
+        self.listbox.see(rid)
+        self.listbox.activate(rid)
+        self.listbox.selection_anchor(rid)
+        self.listbox.event_generate("<<ListboxSelect>>")
+
     def add_ramp(self):
         global ramps
         """
@@ -706,6 +733,7 @@ class RampEditorFrame(tk.Frame):
         try:
             idx = self.ramps_tk.get()[list_sel[0]]
             del ramps[idx]
+            update_selection()
             self.apply_btn.config(state='disabled')
             self.ramps_tk.set(value=tuple(ramps.keys()))
 
@@ -1135,7 +1163,7 @@ for _ in range(256):
 
 _grid()
 #_range_editor()
-test = RampEditorFrame(frame)
+rampeditor_ = RampEditorFrame(frame)
 
 root.bind("<Control-o>", lambda event: open_file())
 root.bind("<Control-s>", lambda event: export_file())
