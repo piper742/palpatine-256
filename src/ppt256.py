@@ -25,6 +25,8 @@ class Selection:
     end: int
 
 g_sel = Selection(-1, -1)
+# Ugly hack to be able to visualize color ramps
+g_hide_sel = False
 
 @dataclass
 class TintColor:
@@ -335,6 +337,11 @@ def edit_color(row, col):
         #2. redraw bckgnd color of clicked cell in UI
         cell_grid[row][col].config(bg=new_hex)
 
+def _grid_sel(ind):
+    global g_hide_sel
+    g_hide_sel = False
+    edit_selection(ind)
+
 def _grid():
   # Just assuming this is expensive
   ISWINDOWS = bool(sys.platform == "win32")
@@ -344,7 +351,7 @@ def _grid():
     for y in range(cols):
       cell = tk.Label(frame, width=4, height=2, bg="white", relief=tk.SUNKEN, bd=2 )
       cell.grid(row=x, column=y)
-      cell.bind("<Button-1>", lambda event, ind = (x * cols + y): edit_selection(ind))
+      cell.bind("<Button-1>", lambda event, ind = (x * cols + y): _grid_sel(ind))
       cell.bind("<Double-1>", lambda event, r=x, c=y: edit_color(r, c))
       if ISWINDOWS == True:
         cell.bind("<MouseWheel>", scroll_selection)
@@ -396,11 +403,12 @@ def update_selection():
 
                     if dosel == True:
                         cell_grid[x][y].config(relief="solid")
-                        if updated_ramp_sel == False:
+                        if updated_ramp_sel == False and g_hide_sel == False:
                             rampeditor_.force_select_ramp(ramp_id)
                             updated_ramp_sel = True
 
-                if ((g_sel.start <= color_index <= g_sel.end or g_sel.start >= color_index >= g_sel.end) and g_sel.end != -1) or (g_sel.end == -1 and color_index == g_sel.start):
+                if g_hide_sel == False and (((g_sel.start <= color_index <= g_sel.end or g_sel.start >= color_index >= g_sel.end) and g_sel.end != -1)
+                    or (g_sel.end == -1 and color_index == g_sel.start)):
                     r = abs(r - 60)
                     b = 255
                     g = abs(g - 60)
@@ -452,6 +460,7 @@ class RampEditorFrame(tk.Frame):
         self.ramp_cnt = 1
         self.ramps_tk = tk.Variable()
         self.curselection = -1
+        self.selhack = False
         # Frame + Listbox
         self.listbox = Listbox(self, width=20, height=10, listvariable=self.ramps_tk, selectmode=tk.SINGLE, exportselection=False)
         listbox_scroll = tk.Scrollbar(self)
@@ -672,7 +681,7 @@ class RampEditorFrame(tk.Frame):
         pass
 
     def lb_callback(self, event):
-        global ramps
+        global ramps, g_hide_sel
         sel = event.widget.curselection()
         idx = 0
         try:
@@ -680,12 +689,18 @@ class RampEditorFrame(tk.Frame):
         except IndexError:
             return
         self.curselection = idx
+        if self.selhack == True:
+            g_hide_sel = True
+            edit_selection(ramps[idx].start + 1)
+            self.selhack = False
         self.apply_btn.config(state='normal')
         self.update_editor_colors(ramps[idx].type, ramps[idx].startcolor, ramps[idx].endcolor)
         self.skipstart_var.set(int(ramps[idx].skipstart))
         self.skipend_var.set(int(ramps[idx].skipend))
+        self.selhack = True
 
     def force_select_ramp(self, index):
+        self.selhack = False
         self.listbox.selection_clear(0, tk.END)
         rid = list(self.ramps_tk.get()).index(index)
         self.listbox.selection_set(rid)
@@ -737,6 +752,9 @@ class RampEditorFrame(tk.Frame):
             self.apply_btn.config(state='disabled')
             self.ramps_tk.set(value=tuple(ramps.keys()))
 
+            # Prevent incorrect current selection specified,
+            # just in case we've just emptied the listbox
+            self.curselection = -1
             if list_sel[0] != 0:
                 self.listbox.selection_clear(0, tk.END)
                 self.listbox.selection_set((list_sel[0]-1))
